@@ -2,6 +2,7 @@ import streamlit as st
 import datetime
 import pandas as pd
 import json
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
@@ -11,6 +12,8 @@ st.set_page_config(
     page_icon="🚔",
     layout="wide"
 )
+
+DATA_FILE = "data.json"
 
 # --- STYL POLICYJNY (TACTICAL COMMAND CENTER) ---
 police_theme_css = """
@@ -44,7 +47,6 @@ police_theme_css = """
         border-right: 1px solid var(--police-border);
     }
 
-    /* Policyjny Nagłówek Główny */
     .police-header {
         background: linear-gradient(135deg, rgba(29, 78, 216, 0.2) 0%, rgba(18, 25, 41, 0.9) 100%);
         border: 1px solid var(--police-border-glow);
@@ -93,7 +95,6 @@ police_theme_css = """
         letter-spacing: 0.5px;
     }
 
-    /* Kafelki Statystyk */
     .stat-card {
         background: var(--police-card);
         border: 1px solid var(--police-border);
@@ -115,7 +116,6 @@ police_theme_css = """
         margin-top: 4px;
     }
 
-    /* Boks Służby / Posterunku */
     .duty-card {
         background: var(--police-card);
         border: 1px solid var(--police-border);
@@ -128,7 +128,6 @@ police_theme_css = """
         align-items: center;
     }
 
-    /* Badges Statusu */
     .badge {
         padding: 4px 10px;
         border-radius: 8px;
@@ -143,7 +142,6 @@ police_theme_css = """
     .badge-l1 { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid #f59e0b; }
     .badge-l2 { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid #ef4444; }
 
-    /* Zakładki (Tabs) */
     .stTabs [data-baseweb="tab-list"] {
         gap: 8px;
         background-color: var(--police-card);
@@ -164,7 +162,6 @@ police_theme_css = """
         box-shadow: 0 4px 12px rgba(29, 78, 216, 0.4);
     }
 
-    /* Przyciski */
     .stButton > button, .stDownloadButton > button {
         background: linear-gradient(135deg, var(--police-blue) 0%, #1e40af 100%);
         color: #ffffff;
@@ -189,7 +186,7 @@ class Person:
     id: str
     platoon: int
     points: int = 0
-    role: str = "student"  # "student" | "dowodca" | "pisarka"
+    role: str = "student"
     active: bool = True
     day_shifts: int = 0
     night_shifts: int = 0
@@ -216,47 +213,7 @@ class Person:
         return '<span class="badge badge-standard">⚪ STANDARD</span>'
 
 
-# --- INICJALIZACJA SESSION STATE ---
-if "pins" not in st.session_state:
-    st.session_state.pins = {
-        "admin": "9999",
-        "pisarka": "5555",
-        "pluton_1": "1111",
-        "pluton_2": "2222",
-        "pluton_3": "3333",
-        "pluton_4": "4444"
-    }
-
-if "people" not in st.session_state:
-    people = {}
-    for platoon in range(1, 5):
-        for nr in range(1, 25):
-            p_id = f"{platoon}{nr:02d}"
-            people[p_id] = Person(id=p_id, platoon=platoon)
-            
-    st.session_state.people = people
-
-if "objects" not in st.session_state:
-    st.session_state.objects = ["Jamnik", "Pudel", "Owczarek"]
-
-if "schedule" not in st.session_state:
-    st.session_state.schedule = {}
-
-if "auth_role" not in st.session_state:
-    st.session_state.auth_role = "sluchacz"
-
-ROLE_LABELS = {
-    "admin": "ADMINISTRATOR",
-    "pisarka": "PISARKA / GRAFIK",
-    "pluton_1": "DOWÓDZTWO PLUTONU 1",
-    "pluton_2": "DOWÓDZTWO PLUTONU 2",
-    "pluton_3": "DOWÓDZTWO PLUTONU 3",
-    "pluton_4": "DOWÓDZTWO PLUTONU 4",
-    "sluchacz": "SŁUCHACZ"
-}
-
-
-# --- EXPORT / IMPORT BACKUP ---
+# --- PERSISTENCE (ZAPIS I ODCZYT Z DYSKU) ---
 def export_backup_json() -> str:
     data = {
         "pins": st.session_state.pins,
@@ -316,6 +273,64 @@ def import_backup_json(json_str: str):
     st.session_state.schedule = new_schedule
 
 
+def save_to_disk():
+    try:
+        content = export_backup_json()
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            f.write(content)
+    except Exception as e:
+        st.error(f"Błąd zapisu danych: {e}")
+
+
+def load_from_disk():
+    if os.path.exists(DATA_FILE):
+        try:
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                import_backup_json(f.read())
+            return True
+        except Exception:
+            return False
+    return False
+
+
+# --- INICJALIZACJA STANU ---
+if "initialized" not in st.session_state:
+    st.session_state.pins = {
+        "admin": "9999",
+        "pisarka": "5555",
+        "pluton_1": "1111",
+        "pluton_2": "2222",
+        "pluton_3": "3333",
+        "pluton_4": "4444"
+    }
+
+    people = {}
+    for platoon in range(1, 5):
+        for nr in range(1, 25):
+            p_id = f"{platoon}{nr:02d}"
+            people[p_id] = Person(id=p_id, platoon=platoon)
+            
+    st.session_state.people = people
+    st.session_state.objects = ["Jamnik", "Pudel", "Owczarek"]
+    st.session_state.schedule = {}
+    st.session_state.auth_role = "sluchacz"
+
+    # Wczytaj z pliku data.json jeśli istnieje
+    load_from_disk()
+    st.session_state.initialized = True
+
+
+ROLE_LABELS = {
+    "admin": "ADMINISTRATOR",
+    "pisarka": "PISARKA / GRAFIK",
+    "pluton_1": "DOWÓDZTWO PLUTONU 1",
+    "pluton_2": "DOWÓDZTWO PLUTONU 2",
+    "pluton_3": "DOWÓDZTWO PLUTONU 3",
+    "pluton_4": "DOWÓDZTWO PLUTONU 4",
+    "sluchacz": "SŁUCHACZ"
+}
+
+
 # --- LOGIKA GENEROWANIA GRAFIKU ---
 def generate_schedule(start_date, end_date):
     people = st.session_state.people
@@ -344,7 +359,6 @@ def generate_schedule(start_date, end_date):
                 for target_platoon in platoon_order:
                     eligible = []
                     for p in people.values():
-                        # PISARKA JEST PUSZCZANA I NIE DOSTAJE SŁUŻB
                         if not p.active or p.role == "pisarka" or p.id in assigned_today:
                             continue
                         if p.platoon != target_platoon:
@@ -375,6 +389,7 @@ def generate_schedule(start_date, end_date):
         current_date += datetime.timedelta(days=1)
 
     st.session_state.schedule = schedule
+    save_to_disk()
 
 
 # --- SIDEBAR AUTORYZACJI ---
@@ -407,7 +422,7 @@ st.sidebar.divider()
 st.sidebar.caption("✍️ Autor: post. Łukasz Gawin\nSłuchacz CSP Legionowo 2026")
 
 
-# --- HEADER GŁÓWNY Z AUTOREM ---
+# --- HEADER GŁÓWNY ---
 st.markdown("""
 <div class="police-header">
     <div class="police-tag">CENTRUM SZKOLENIA POLICJI</div>
@@ -450,7 +465,7 @@ with c3:
 st.write("")
 
 
-# --- KONTROLA TABÓW W ZALEŻNOŚCI OD ROLI ---
+# --- KONTROLA TABÓW ---
 auth = st.session_state.auth_role
 tabs_titles = ["📅 Grafik Służb", "📊 Ewidencja Kompanii", "👤 Kartoteka Słuchacza"]
 
@@ -596,7 +611,7 @@ with tabs[tab_idx]:
 tab_idx += 1
 
 
-# --- ZASTĘPSTWA & CZARNA LISTA (PLUTONY 1-4 RESTRIKCJE VS ADMIN MOŻE WSZYSTKICH) ---
+# --- ZASTĘPSTWA & CZARNA LISTA ---
 if auth in ("pluton_1", "pluton_2", "pluton_3", "pluton_4", "admin"):
     
     platoon_limit = int(auth.split("_")[1]) if auth.startswith("pluton_") else None
@@ -634,7 +649,6 @@ if auth in ("pluton_1", "pluton_2", "pluton_3", "pluton_4", "admin"):
 
                 candidates = []
                 for p in st.session_state.people.values():
-                    # PISARKA NIE JEST BRA NA ZASTĘPSTWA
                     if not p.active or p.role == "pisarka": continue
                     if platoon_limit is not None and p.platoon != platoon_limit: continue
                     if filter_candidate_type == "Tylko z Czarnej Listy (Pkt < 0)" and p.points >= 0: continue
@@ -667,6 +681,7 @@ if auth in ("pluton_1", "pluton_2", "pluton_3", "pluton_4", "admin"):
                                 "reason": f"Zastępstwo / służba na posterunku {sel_obj} ({sel_date})"
                             })
                         
+                        save_to_disk()
                         st.success(f"Zastąpiono słuchacza {curr_id} przez {chosen_rep}!")
                         st.rerun()
                 else:
@@ -707,6 +722,7 @@ if auth in ("pluton_1", "pluton_2", "pluton_3", "pluton_4", "admin"):
                         "delta": pts_val,
                         "reason": reason_val
                     })
+                    save_to_disk()
                     st.success(f"Zaktualizowano punktację dla słuchacza {st_id}!")
                     st.rerun()
 
@@ -725,7 +741,7 @@ if auth in ("pluton_1", "pluton_2", "pluton_3", "pluton_4", "admin"):
     tab_idx += 1
 
 
-# --- GENERATOR & BACKUP (DLA PISARKI & ADMINA) ---
+# --- GENERATOR & BACKUP ---
 if auth in ("pisarka", "admin"):
 
     # TAB: GENERATOR
@@ -737,7 +753,7 @@ if auth in ("pisarka", "admin"):
             g_end = st.date_input("Do dnia:", datetime.date(2026, 9, 20))
             if st.button("Wygeneruj Grafik (Rotacja Plutonów)", type="primary"):
                 generate_schedule(g_start, g_end)
-                st.success("Nowy grafik został wygenerowany pomyślnie!")
+                st.success("Nowy grafik został wygenerowany pomyślnie i zapisany!")
                 st.rerun()
 
         with col_g2:
@@ -769,7 +785,8 @@ if auth in ("pisarka", "admin"):
                     try:
                         content = uploaded_file.read().decode("utf-8")
                         import_backup_json(content)
-                        st.success("Pomyślnie wczytano dane z backupu!")
+                        save_to_disk()
+                        st.success("Pomyślnie wczytano i zapisano dane z backupu!")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Błąd podczas wczytywania pliku: {e}")
@@ -777,7 +794,7 @@ if auth in ("pisarka", "admin"):
     tab_idx += 1
 
 
-# --- TAB: PANEL ADMINA (TYLKO DLA ADMINA) ---
+# --- TAB: PANEL ADMINA ---
 if auth == "admin":
     with tabs[tab_idx]:
         st.subheader("⚙️ Pełny Panel Administracyjny")
@@ -785,13 +802,14 @@ if auth == "admin":
         adm_c1, adm_c2 = st.columns(2)
 
         with adm_c1:
-            # 1. ZARZĄDZANIE POSTERUNKAMI / OBIEKTAMI
+            # 1. POSTERUNKI
             st.markdown("#### 🏢 Obiekty & Posterunki")
             
             new_obj_name = st.text_input("Nazwa nowego posterunku:")
             if st.button("Dodaj Posterunek"):
                 if new_obj_name and new_obj_name not in st.session_state.objects:
                     st.session_state.objects.append(new_obj_name)
+                    save_to_disk()
                     st.success(f"Dodano posterunek: {new_obj_name}")
                     st.rerun()
 
@@ -805,17 +823,19 @@ if auth == "admin":
                     if st.button("Zmień nazwę"):
                         idx = st.session_state.objects.index(obj_to_edit)
                         st.session_state.objects[idx] = renamed_obj
+                        save_to_disk()
                         st.success("Zmieniono nazwę posterunku!")
                         st.rerun()
                 with col_btn2:
                     if st.button("❌ Usuń posterunek"):
                         st.session_state.objects.remove(obj_to_edit)
+                        save_to_disk()
                         st.success("Usunięto posterunek!")
                         st.rerun()
 
             st.divider()
 
-            # 2. ROLE (SŁUCHACZ / PISARKA / DOWÓDCA)
+            # 2. ROLE
             st.markdown("#### 👤 Mianowanie Ról w Kompanii")
             target_p_id = st.selectbox("Wybierz osobę z kompanii:", sorted(list(st.session_state.people.keys())))
             target_person = st.session_state.people[target_p_id]
@@ -834,11 +854,12 @@ if auth == "admin":
 
             if st.button("Zapisz Rolę Osoby"):
                 target_person.role = rev_role_options[new_role_choice]
+                save_to_disk()
                 st.success(f"Zmieniono rolę dla słuchacza {target_p_id} na: **{new_role_choice}**")
                 st.rerun()
 
         with adm_c2:
-            # 3. ZARZĄDZANIE KODAMI PIN
+            # 3. KODY PIN
             st.markdown("#### 🔑 Kody PIN (Konta Dostępowe)")
             st.caption("Zmiana kodów PIN dla ról administracyjnych i dowódczych:")
             
@@ -849,6 +870,7 @@ if auth == "admin":
 
             if st.button("Zapisz Kody PIN"):
                 st.session_state.pins.update(updated_pins)
+                save_to_disk()
                 st.success("Zaktualizowano kody PIN dla wszystkich kont!")
                 st.rerun()
 
@@ -856,5 +878,6 @@ if auth == "admin":
             st.markdown("#### ⚠️ Reset Systemu")
             if st.button("Wyczyszczenie Grafiku do Zera"):
                 st.session_state.schedule = {}
+                save_to_disk()
                 st.warning("Grafik został zresetowany.")
                 st.rerun()
